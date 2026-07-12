@@ -9,7 +9,7 @@ def create_agent_registry(model):
     return {
         "diagnostic": create_thesis_diagnostic_agent(model),
         "searcher": create_literature_searcher_agent(model),
-        # "literature": create_literature_reviewer_agent(model),
+        "reviewer": create_literature_reviewer_agent(model),
         # "writer": create_thesis_writer_agent(model),
     }
 

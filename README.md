@@ -15,6 +15,7 @@ The currently registered agents are:
 
 - `diagnostic`: reviews thesis content using the local thesis repository and Notion tickets.
 - `searcher`: searches for literature related to a thesis ticket or research question.
+- `reviewer`: assesses selected sources against thesis context and records fit decisions.
 
 Additional agent configs and skills are present in the repo but are not yet be registered in `agents_config/registry.py`.
 

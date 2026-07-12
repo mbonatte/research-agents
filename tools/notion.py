@@ -153,6 +153,82 @@ def source_search_filter(name: str, definition: dict[str, Any], value: str) -> d
     return None
 
 
+def database_schema(database_id: str, headers: dict[str, str]) -> dict[str, Any]:
+    response = requests.get(
+        f"https://api.notion.com/v1/databases/{database_id}", headers=headers, timeout=20
+    )
+    response.raise_for_status()
+    return response.json().get("properties", {})
+
+
+def add_missing_properties(
+    database_id: str, headers: dict[str, str], properties: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    """Add only absent properties, preserving all existing database configuration."""
+    schema = database_schema(database_id, headers)
+    missing = {name: definition for name, definition in properties.items() if name not in schema}
+    if not missing:
+        return schema
+    response = requests.patch(
+        f"https://api.notion.com/v1/databases/{database_id}",
+        headers=headers,
+        json={"properties": missing},
+        timeout=20,
+    )
+    response.raise_for_status()
+    return response.json().get("properties", schema)
+
+
+def fit_review_properties() -> dict[str, dict[str, Any]]:
+    return {
+        "Fit Decision": {"select": {}},
+        "Reviewer Evidence Access": {"select": {}},
+        "Agent 4 Citation Use": {"select": {}},
+        "Fit Reviewed At": {"date": {}},
+        "Fit Review Summary": {"rich_text": {}},
+        "Claim Support": {"rich_text": {}},
+        "Do Not Use For": {"rich_text": {}},
+        "Literature Fit Scores JSON": {"rich_text": {}},
+        "Recommended Agent 4 Action": {"rich_text": {}},
+        "Bibliography Review": {"rich_text": {}},
+        "Conflict/Tension": {"rich_text": {}},
+        "Target Thesis Location": {"rich_text": {}},
+    }
+
+
+def fit_review_page_properties(
+    *,
+    fit_decision: str,
+    evidence_access: str,
+    citation_use: str,
+    summary: str,
+    claim_support: str,
+    do_not_use_for: str,
+    scores_json: str,
+    recommended_action: str,
+    bibliography_review: str,
+    conflict_tension: str,
+    target_thesis_location: str,
+) -> dict[str, Any]:
+    from datetime import datetime, timezone
+
+    values = {
+        "Fit Decision": {"select": {"name": fit_decision}},
+        "Reviewer Evidence Access": {"select": {"name": evidence_access}},
+        "Agent 4 Citation Use": {"select": {"name": citation_use}},
+        "Fit Reviewed At": {"date": {"start": datetime.now(timezone.utc).isoformat()}},
+        "Fit Review Summary": {"rich_text": text_blocks(summary)},
+        "Claim Support": {"rich_text": text_blocks(claim_support)},
+        "Do Not Use For": {"rich_text": text_blocks(do_not_use_for)},
+        "Literature Fit Scores JSON": {"rich_text": text_blocks(scores_json)},
+        "Recommended Agent 4 Action": {"rich_text": text_blocks(recommended_action)},
+        "Bibliography Review": {"rich_text": text_blocks(bibliography_review)},
+        "Conflict/Tension": {"rich_text": text_blocks(conflict_tension)},
+        "Target Thesis Location": {"rich_text": text_blocks(target_thesis_location)},
+    }
+    return {name: value for name, value in values.items() if value}
+
+
 def update_mendeley_article(
     *,
     title: str,
@@ -285,6 +361,132 @@ def update_mendeley_article(
         "url": page.get("url"),
         "populated_properties": list(properties),
     }
+
+
+@function_tool
+def list_search_articles(ticket_id: str = "", max_results: int = 100) -> str:
+    """Read candidate articles from the Notion Search database for fit review.
+
+    When a ticket ID is provided, returned records are filtered locally using any
+    recognized Ticket ID property. This tool is read-only.
+    """
+    database_id = os.getenv("NOTION_DATABASE_SEARCH_ID")
+    if not database_id:
+        return "Error: Missing NOTION_DATABASE_SEARCH_ID in .env"
+    try:
+        headers = notion_headers()
+        schema = database_schema(database_id, headers)
+        response = requests.post(
+            f"https://api.notion.com/v1/databases/{database_id}/query",
+            headers=headers,
+            json={"page_size": max(1, min(max_results, 100))},
+            timeout=20,
+        )
+        response.raise_for_status()
+    except (RuntimeError, requests.RequestException) as exc:
+        return f"Error: Could not read literature-search records: {exc}"
+
+    title_property = first_title_property(schema)
+    ticket_property = find_schema_property(schema, ("ticket id", "ticket_id", "ticket"))
+    records = []
+    for page in response.json().get("results", []):
+        props = page.get("properties", {})
+        found_ticket_id = notion_property_text(props.get(ticket_property[0], {})) if ticket_property else ""
+        if ticket_id and ticket_id.lower() not in found_ticket_id.lower():
+            continue
+        records.append({
+            "page_id": page.get("id"),
+            "url": page.get("url"),
+            "title": notion_property_text(props.get(title_property[0], {})) if title_property else "",
+            "ticket_id": found_ticket_id,
+            "properties": {name: notion_property_text(value) for name, value in props.items() if notion_property_text(value)},
+        })
+    return json.dumps(records, ensure_ascii=False)
+
+
+@function_tool
+def write_literature_fit_review(
+    page_id: str,
+    fit_decision: str,
+    evidence_access: str,
+    citation_use: str,
+    summary: str,
+    claim_support: str = "",
+    do_not_use_for: str = "",
+    scores_json: str = "",
+    recommended_action: str = "",
+    bibliography_review: str = "",
+    conflict_tension: str = "",
+    target_thesis_location: str = "",
+) -> str:
+    """Write a completed fit review to a candidate article in the Search database.
+
+    Call this only when the user asks for Notion writeback. Missing review properties
+    are added without changing unrelated fields.
+    """
+    allowed = {"strong_accept", "accept", "background_only", "uncertain", "reject"}
+    if fit_decision not in allowed:
+        return f"Error: fit_decision must be one of {', '.join(sorted(allowed))}."
+    database_id = os.getenv("NOTION_DATABASE_SEARCH_ID")
+    if not database_id:
+        return "Error: Missing NOTION_DATABASE_SEARCH_ID in .env"
+    try:
+        headers = notion_headers()
+        add_missing_properties(database_id, headers, fit_review_properties())
+        response = requests.patch(
+            f"https://api.notion.com/v1/pages/{page_id}",
+            headers=headers,
+            json={"properties": fit_review_page_properties(
+                fit_decision=fit_decision, evidence_access=evidence_access,
+                citation_use=citation_use, summary=summary, claim_support=claim_support,
+                do_not_use_for=do_not_use_for, scores_json=scores_json,
+                recommended_action=recommended_action, bibliography_review=bibliography_review,
+                conflict_tension=conflict_tension, target_thesis_location=target_thesis_location,
+            )},
+            timeout=20,
+        )
+        response.raise_for_status()
+    except (RuntimeError, requests.RequestException) as exc:
+        return f"Error: Could not write literature fit review: {exc}"
+    page = response.json()
+    return json.dumps({"status": "updated", "page_id": page.get("id"), "url": page.get("url")}, ensure_ascii=False)
+
+
+@function_tool
+def write_ticket_literature_fit_summary(
+    ticket_id: str, summary: str, recommended_source_set: str, status: str = "complete"
+) -> str:
+    """Write the fit-review summary and recommended sources back to a thesis ticket."""
+    database_id = os.getenv("NOTION_DATABASE_TICKET_ID")
+    if not database_id:
+        return "Error: Missing NOTION_DATABASE_TICKET_ID in .env"
+    try:
+        headers = notion_headers()
+        pages = find_ticket_pages(ticket_id, headers)
+        if not pages:
+            return f"Error: No ticket found with ticket_id={ticket_id!r}."
+        if len(pages) > 1:
+            return f"Error: Multiple tickets found with ticket_id={ticket_id!r}."
+        add_missing_properties(database_id, headers, {
+            "Literature Fit Review Status": {"rich_text": {}},
+            "Literature Fit Review Summary": {"rich_text": {}},
+            "Recommended Source Set": {"rich_text": {}},
+        })
+        response = requests.patch(
+            f"https://api.notion.com/v1/pages/{pages[0].get('id')}",
+            headers=headers,
+            json={"properties": {
+                "Literature Fit Review Status": {"rich_text": text_blocks(status)},
+                "Literature Fit Review Summary": {"rich_text": text_blocks(summary)},
+                "Recommended Source Set": {"rich_text": text_blocks(recommended_source_set)},
+            }},
+            timeout=20,
+        )
+        response.raise_for_status()
+    except (RuntimeError, requests.RequestException) as exc:
+        return f"Error: Could not write ticket fit-review summary: {exc}"
+    page = response.json()
+    return json.dumps({"status": "updated", "ticket_id": ticket_id, "page_id": page.get("id")}, ensure_ascii=False)
 
 
 @function_tool
