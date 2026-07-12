@@ -240,6 +240,12 @@ def update_mendeley_article(
     abstract: str = "",
     official_url: str = "",
     source_type: str = "",
+    citation_key: str = "",
+    file_id: str = "",
+    keywords: str = "",
+    tags: str = "",
+    created: str = "",
+    last_modified: str = "",
     page_id: str = "",
 ) -> dict[str, Any]:
     """Create or update one Notion/Mendeley archive record.
@@ -279,6 +285,12 @@ def update_mendeley_article(
         "abstract": ("abstract", "summary"),
         "official_url": ("official url", "url", "link", "source url"),
         "source_type": ("source type", "type", "publication type"),
+        "citation_key": ("citation key", "citekey"),
+        "file_id": ("file id", "mendeley file id"),
+        "keywords": ("keywords", "keyword"),
+        "tags": ("tags", "tag"),
+        "created": ("created", "created at"),
+        "last_modified": ("last modified", "updated", "modified at"),
     }
     matched_page_id = page_id.strip()
     if not matched_page_id:
@@ -323,6 +335,12 @@ def update_mendeley_article(
         "abstract": abstract,
         "official_url": official_url,
         "source_type": source_type,
+        "citation_key": citation_key,
+        "file_id": file_id,
+        "keywords": keywords,
+        "tags": tags,
+        "created": created,
+        "last_modified": last_modified,
     }
     properties: dict[str, Any] = {}
     for field, value in values.items():
@@ -361,6 +379,20 @@ def update_mendeley_article(
         "url": page.get("url"),
         "populated_properties": list(properties),
     }
+
+
+def update_mendeley_document(
+    document: dict[str, Any], files_by_document_id: dict[str, list[dict[str, Any]]] | None = None
+) -> dict[str, Any]:
+    """Upsert a raw Mendeley API document using the archive's normalized record shape.
+
+    This application helper is intentionally not an agent tool.
+    """
+    from tools.mendeley import mendeley_document_to_archive_record
+
+    return update_mendeley_article(
+        **mendeley_document_to_archive_record(document, files_by_document_id)
+    )
 
 
 @function_tool

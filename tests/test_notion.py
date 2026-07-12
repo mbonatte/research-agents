@@ -4,6 +4,7 @@ import json
 import pytest
 
 from tools import notion
+from tools.mendeley import mendeley_document_to_archive_record
 
 
 class Response:
@@ -37,6 +38,18 @@ def test_text_blocks_and_schema_matching():
     assert [len(block["text"]["content"]) for block in blocks] == [2000, 1]
     schema = {"Ticket_ID": {"type": "rich_text"}}
     assert notion.find_schema_property(schema, ("ticket id",))[0] == "Ticket_ID"
+
+
+def test_mendeley_document_mapper_prefers_pdf_and_preserves_sync_fields():
+    record = mendeley_document_to_archive_record(
+        {"id": "doc-1", "title": "Paper", "authors": [{"first_name": "Ada", "last_name": "Lovelace"}],
+         "identifiers": {"doi": "10.1/example"}, "citation_key": "Lovelace2026",
+         "keywords": ["bridges"], "tags": ["review"], "last_modified": "2026-01-01T00:00:00Z"},
+        {"doc-1": [{"id": "other", "mime_type": "text/plain"}, {"id": "pdf", "mime_type": "application/pdf"}]},
+    )
+    assert record["authors"] == "Ada Lovelace"
+    assert record["file_id"] == "pdf"
+    assert record["doi"] == "10.1/example"
 
 
 def test_push_ticket_skips_existing_record(monkeypatch):
