@@ -7,17 +7,32 @@ from tools.latex import (
     read_repo_file,
     search_repo_text,
 )
+from tools.github import clone_or_update_thesis_repository
+from tools.notion import list_search_articles, pull_notion_ticket
+from tools.thesis_writer import (
+    commit_writer_changes,
+    create_writer_branch,
+    replace_thesis_text,
+    validate_writer_changes,
+)
 
 
 def create_latex_pr_writer_agent(model):
     return Agent(
-        name="Literature Fit Reviewer",
+        name="Thesis LaTeX Writer",
         instructions=load_skill("skills/thesis-latex-pr-writer.md"),
         model=model,
-        model_settings=ModelSettings(include_usage=True),
+        model_settings=ModelSettings(include_usage=True, parallel_tool_calls=False),
         tools=[
+            clone_or_update_thesis_repository,
             list_repo_files,
             read_repo_file,
             search_repo_text,
+            pull_notion_ticket,
+            list_search_articles,
+            create_writer_branch,
+            replace_thesis_text,
+            validate_writer_changes,
+            commit_writer_changes,
         ],
     )
