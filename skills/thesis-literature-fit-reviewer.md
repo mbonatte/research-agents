@@ -140,9 +140,10 @@ If already in bibliography, recommend using the existing entry instead of creati
 
 For every Search-database candidate, also call `check_mendeley_archive` with the
 verified title and DOI. If a Mendeley match has a non-empty `file_id`, call
-`mark_search_article_already_in_bib` with the Search record page ID. This checks the
-Search database's `Already in Bib` checkbox; do not set it when no archive match or
-file ID is present. Report these updates in the fit-review output.
+`link_search_article_to_mendeley` with the Search record page ID and the matching
+Mendeley page ID. This creates the Search database's `Mendeley` relation; do not link
+it when no archive match or file ID is present. Report these updates in the fit-review
+output.
 
 ### 9. Conflict/tension detection
 

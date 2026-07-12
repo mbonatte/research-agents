@@ -126,10 +126,14 @@ def test_write_fit_review_adds_missing_properties_and_updates_page(monkeypatch):
     assert calls[1][1]["properties"]["Fit Decision"]["select"]["name"] == "accept"
 
 
-def test_mark_already_in_bib_requires_checkbox_and_sets_it(monkeypatch):
-    monkeypatch.setattr(notion.requests, "get", lambda *args, **kwargs: Response({"properties": {"Already in Bib": {"type": "checkbox"}}}))
+def test_link_search_article_to_mendeley_preserves_existing_relations(monkeypatch):
+    responses = iter([
+        Response({"properties": {"Mendeley": {"type": "relation"}}}),
+        Response({"properties": {"Mendeley": {"relation": [{"id": "old-link"}]}}}),
+    ])
+    monkeypatch.setattr(notion.requests, "get", lambda *args, **kwargs: next(responses))
     calls = []
     monkeypatch.setattr(notion.requests, "patch", lambda *args, **kwargs: calls.append(kwargs["json"]) or Response({}))
-    result = json.loads(invoke(notion.mark_search_article_already_in_bib, page_id="candidate-1"))
-    assert result["already_in_bib"] is True
-    assert calls[0]["properties"]["Already in Bib"] == {"checkbox": True}
+    result = json.loads(invoke(notion.link_search_article_to_mendeley, page_id="candidate-1", mendeley_page_id="archive-1"))
+    assert result["status"] == "linked"
+    assert calls[0]["properties"]["Mendeley"] == {"relation": [{"id": "old-link"}, {"id": "archive-1"}]}

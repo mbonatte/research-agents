@@ -11,7 +11,7 @@ from tools.latex import (
 from tools.notion import (
     check_mendeley_archive,
     list_search_articles,
-    mark_search_article_already_in_bib,
+    link_search_article_to_mendeley,
     pull_notion_ticket,
     write_literature_fit_review,
     write_ticket_literature_fit_summary,
@@ -32,7 +32,7 @@ def create_literature_reviewer_agent(model):
             pull_notion_ticket,
             list_search_articles,
             check_mendeley_archive,
-            mark_search_article_already_in_bib,
+            link_search_article_to_mendeley,
             write_literature_fit_review,
             write_ticket_literature_fit_summary,
         ],

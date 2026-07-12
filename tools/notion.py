@@ -606,11 +606,12 @@ def check_mendeley_archive(title: str, doi: str = "") -> str:
 
 
 @function_tool
-def mark_search_article_already_in_bib(page_id: str) -> str:
-    """Set the Search database `Already in Bib` checkbox for a verified archive match.
+def link_search_article_to_mendeley(page_id: str, mendeley_page_id: str) -> str:
+    """Link a Search record to its downloaded Mendeley archive record.
 
     Use only after `check_mendeley_archive` found a matching record with a non-empty
-    file_id. The tool never creates the property or changes unrelated fields.
+    file_id. The Search database uses the `Mendeley` relation property instead of an
+    `Already in Bib` checkbox. Existing relation links are preserved.
     """
     database_id = os.getenv("NOTION_DATABASE_SEARCH_ID")
     if not database_id:
@@ -618,21 +619,29 @@ def mark_search_article_already_in_bib(page_id: str) -> str:
     try:
         headers = notion_headers()
         schema = database_schema(database_id, headers)
-        property_match = find_schema_property(schema, ("already in bib", "already_in_bib"))
+        property_match = find_schema_property(schema, ("mendeley",))
         if not property_match:
-            return "Error: Search database is missing the `Already in Bib` property."
-        if property_match[1].get("type") != "checkbox":
-            return "Error: Search database `Already in Bib` must be a checkbox property."
+            return json.dumps({"status": "skipped", "reason": "Search database has no Mendeley relation property."})
+        if property_match[1].get("type") != "relation":
+            return json.dumps({"status": "skipped", "reason": "Search database Mendeley property is not a relation."})
+        page_response = requests.get(
+            f"https://api.notion.com/v1/pages/{page_id}", headers=headers, timeout=20
+        )
+        page_response.raise_for_status()
+        current = page_response.json().get("properties", {}).get(property_match[0], {}).get("relation", [])
+        relation_ids = [item.get("id") for item in current if item.get("id")]
+        if mendeley_page_id not in relation_ids:
+            relation_ids.append(mendeley_page_id)
         response = requests.patch(
             f"https://api.notion.com/v1/pages/{page_id}",
             headers=headers,
-            json={"properties": {property_match[0]: {"checkbox": True}}},
+            json={"properties": {property_match[0]: {"relation": [{"id": item} for item in relation_ids]}}},
             timeout=20,
         )
         response.raise_for_status()
     except (RuntimeError, requests.RequestException) as exc:
-        return f"Error: Could not mark Search record as already in bibliography: {exc}"
-    return json.dumps({"status": "updated", "page_id": page_id, "already_in_bib": True})
+        return f"Error: Could not link Search record to Mendeley: {exc}"
+    return json.dumps({"status": "linked", "page_id": page_id, "mendeley_page_id": mendeley_page_id})
 
 
 @function_tool
