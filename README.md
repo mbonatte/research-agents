@@ -8,7 +8,8 @@ Local command-line agents for supporting PhD thesis work. The current draft focu
 - Run a thesis diagnostic reviewer against files from a cloned thesis repository.
 - Pull thesis-improvement tickets from a Notion database.
 - Create deduplicated thesis-improvement tickets in Notion after a diagnostic run.
-- Search academic metadata.
+- Run standalone deep, multi-source academic searches with OpenAlex, Crossref,
+  Semantic Scholar, arXiv, and DOI/BibTeX verification.
 
 The currently registered agents are:
 
@@ -74,7 +75,9 @@ Optional or tool-specific:
 
 - `GEMINI_API_KEY`: API key for the Gemini OpenAI-compatible endpoint.
 - `NOTION_API_KEY_PHD_THESIS`: Notion integration token for the thesis database.
-- `NOTION_DATABASE_ID`: Notion database ID for thesis-improvement tickets.
+- `NOTION_DATABASE_TICKET_ID`: Notion database ID for thesis-improvement tickets.
+- `NOTION_DATABASE_MENDELEY_ID`: Notion database ID for Mendeley records.
+- `NOTION_DATABASE_SEARCH_ID`: Notion database ID for literature searches.
 - `GITHUB_PHD_THESIS_URL`: SSH clone URL for the private thesis repository.
 - `GITHUB_PHD_THESIS_KEY_PRIVATE`: base64-encoded SSH private key used by the GitHub tool.
 - `GITHUB_ACCESS_TOKEN`: currently reserved for GitHub access-token workflows.
@@ -100,7 +103,7 @@ TODO:
 - Create the thesis-improvement database.
 - Define the expected ticket properties, including `ticket_id`, `severity`, `issue_type`, `confidence`, `location`, `diagnosis`, `evidence`, `why_it_matters`, `suggested_research_directions`, and `expected_improvement`.
 - Create a Notion integration and share the database with it.
-- Set `NOTION_API_KEY_PHD_THESIS` and `NOTION_DATABASE_ID`.
+- Set `NOTION_API_KEY_PHD_THESIS` and `NOTION_DATABASE_TICKET_ID`.
 - Verify that `pull_notion_ticket` can retrieve a known ticket and that a diagnostic
   run can create a new ticket. Ticket creation skips an existing `ticket_id`, making
   retries safe.

@@ -9,7 +9,7 @@ description: "Search, verify, deduplicate, and package candidate thesis literatu
 
 Use this skill when processing thesis diagnostic improvement tickets that require academic literature search and evidence collection.
 
-The agent consumes improvement tickets from a thesis diagnostic reviewer, searches for relevant academic literature, verifies metadata, deduplicates against the existing bibliography, and produces structured candidate literature packages for later critical review by a Literature Fit Reviewer.
+The agent consumes improvement tickets from a thesis diagnostic reviewer, searches for relevant academic literature, verifies metadata, deduplicates the collected candidates, and produces structured candidate literature packages for later critical review by a Literature Fit Reviewer.
 
 Do not decide final thesis relevance. Do not write thesis text.
 
@@ -23,13 +23,15 @@ Do not decide final thesis relevance. Do not write thesis text.
 - Do not overcollect. Prefer quality and thesis-useful relevance over quantity.
 - Never create fake BibTeX.
 - Never claim to have read a paper unless the abstract, full text, or reliable metadata was actually available.
+- Never inspect, clone, search, or read the thesis repository or its bibliography. The
+  ticket or user-provided topic is the only thesis-related context available to this agent.
 
 ## Inputs
 
 The user may provide:
 
 - One or more improvement tickets.
-- A thesis article repository database.
+- A Notion/Mendeley archive of sources already collected.
 - A thesis title, abstract, or research objectives.
 - Keywords or constraints.
 - Target number of sources.
@@ -94,8 +96,6 @@ For each ticket, identify:
 - Suggested research directions.
 - Expected improvement.
 - Downstream instruction.
-- Existing citations already present in the target section, if available.
-- Existing `.bib` entries that may overlap.
 
 Restate the ticket in your own words before searching.
 
@@ -110,6 +110,29 @@ Do not run only one broad search. Convert each ticket into several targeted sear
 - Thesis-specific terms from the actual section and research objectives.
 
 ### 3. Search and collect candidates
+
+Use multiple independent discovery sources for every substantial ticket. Start with
+OpenAlex for broad scholarly coverage and abstracts, then use Crossref to verify the
+metadata and DOI of retained candidates. Use Semantic Scholar as a complementary
+source for citation signals and arXiv only for clearly labelled preprints. Do not
+repeat the same query across every service without varying the search cluster.
+
+For a deep search, run at least one query for each relevant cluster and include both:
+
+- a foundational/high-citation query without a restrictive date filter; and
+- a recent query (normally the last five years) when the subject has an active recent
+  literature.
+
+Before retaining a candidate, retrieve its DOI through `get_crossref_work` or its
+OpenAlex record through `get_openalex_work`. Use `fetch_website_text` only to inspect
+an official publisher, institutional, standards, or repository page; never treat a
+search snippet as evidence. Use `get_bibtex_from_doi` only after metadata is verified.
+
+For every candidate that would otherwise be retained, call `check_mendeley_archive`
+with its verified title and DOI. The Mendeley archive is the sole duplicate check: do
+not inspect the thesis repository or a local `.bib` file. Mark a returned match as
+`already_in_mendeley: true`, include its page ID/URL in `mendeley_matches`, and do not
+push that source to the Search database again.
 
 For each search cluster, collect candidate sources with:
 
@@ -135,12 +158,19 @@ Deduplicate by:
 - DOI.
 - Title similarity.
 - Author/year/title combination.
-- Existing citation key in the thesis `.bib`.
 - Preprint versus final published version.
 
-If already in the thesis bibliography, set `already_in_bib: true`.
+For preprints and published versions of the same work, retain the published version
+unless the preprint contains material unavailable in the final version.
 
-If it may duplicate an existing citation key, set `possible_duplicate: true` and explain `duplicate_reason`.
+### 4a. Save selected sources
+
+After the Mendeley check, call `push_search_article` for every selected candidate that
+is not already in the Mendeley archive. Push only strong candidates, candidates, or
+explicitly requested background sources—not raw search results or rejected sources.
+Include the verified metadata, abstract, ticket ID, and relevance note. The tool
+deduplicates the Search database by DOI/title and reports whether the record was
+created or skipped. Report the created and skipped records in the final response.
 
 ### 5. Classify sources
 
@@ -226,9 +256,9 @@ Group sources by usefulness:
 - Maybe useful.
 - Background only.
 
-## 4. Existing bibliography overlap
+## 4. Candidate duplicates and version conflicts
 
-List sources already present in the thesis `.bib`, possible duplicates, and missing metadata.
+List duplicate candidates, preprint/published-version conflicts, and missing metadata.
 
 ## 5. Rejected or low-confidence sources
 
@@ -271,8 +301,8 @@ literature_search_package:
       open_access_pdf: "https://..."
       abstract: "Verified abstract or concise abstract summary."
       evidence_access_level: "metadata only | abstract only | full text available | full text reviewed"
-      already_in_bib: false
-      existing_bib_key: null
+      already_in_mendeley: false
+      mendeley_matches: []
       possible_duplicate: false
       duplicate_reason: null
       found_by:

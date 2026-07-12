@@ -77,9 +77,9 @@ def text_blocks(value: str, chunk_size: int = RICH_TEXT_CHUNK_SIZE) -> list[dict
 
 def find_ticket_pages(ticket_id: str, headers: dict[str, str]) -> list[dict[str, Any]]:
     """Return database pages whose title property exactly matches ``ticket_id``."""
-    database_id = os.getenv("NOTION_DATABASE_ID")
+    database_id = os.getenv("NOTION_DATABASE_TICKET_ID")
     if not database_id:
-        raise RuntimeError("Missing NOTION_DATABASE_ID in .env")
+        raise RuntimeError("Missing NOTION_DATABASE_TICKET_ID in .env")
 
     response = requests.post(
         f"https://api.notion.com/v1/databases/{database_id}/query",
@@ -92,6 +92,262 @@ def find_ticket_pages(ticket_id: str, headers: dict[str, str]) -> list[dict[str,
     )
     response.raise_for_status()
     return response.json().get("results", [])
+
+
+def notion_property_text(value: dict[str, Any]) -> str:
+    """Extract the display text from the common Notion database property types."""
+    property_type = value.get("type")
+    if property_type in {"title", "rich_text"}:
+        return "".join(item.get("plain_text", "") for item in value.get(property_type, []))
+    if property_type in {"url", "email", "phone_number"}:
+        return value.get(property_type) or ""
+    if property_type in {"select", "status"}:
+        selected = value.get(property_type)
+        return selected.get("name", "") if selected else ""
+    return ""
+
+
+def find_schema_property(schema: dict[str, Any], names: tuple[str, ...]) -> tuple[str, dict[str, Any]] | None:
+    """Find a Notion property by a case-insensitive canonical field name."""
+    normalized_names = {name.lower().replace("_", "").replace("-", " ") for name in names}
+    for name, definition in schema.items():
+        normalized = name.lower().replace("_", "").replace("-", " ")
+        if normalized in normalized_names:
+            return name, definition
+    return None
+
+
+def first_title_property(schema: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    for name, definition in schema.items():
+        if definition.get("type") == "title":
+            return name, definition
+    return None
+
+
+def notion_text_property(property_type: str, value: str) -> dict[str, Any] | None:
+    if not value:
+        return None
+    if property_type == "title":
+        return {"title": text_blocks(value, TITLE_CHUNK_SIZE)}
+    if property_type == "rich_text":
+        return {"rich_text": text_blocks(value)}
+    if property_type == "url":
+        return {"url": value}
+    if property_type == "number":
+        try:
+            return {"number": int(value)}
+        except ValueError:
+            return None
+    return None
+
+
+def source_search_filter(name: str, definition: dict[str, Any], value: str) -> dict[str, Any] | None:
+    property_type = definition.get("type")
+    if property_type == "title":
+        return {"property": name, "title": {"equals": value[:100]}}
+    if property_type == "rich_text":
+        return {"property": name, "rich_text": {"contains": value[:100]}}
+    if property_type == "url":
+        return {"property": name, "url": {"equals": value}}
+    return None
+
+
+@function_tool
+def check_mendeley_archive(title: str, doi: str = "") -> str:
+    """Check the Notion/Mendeley archive for an existing source by DOI and title.
+
+    Use this for every source retained from a literature search. It only reads the
+    configured Mendeley database and returns matching archive records; it never edits
+    the archive.
+    """
+    database_id = os.getenv("NOTION_DATABASE_MENDELEY_ID")
+    if not database_id:
+        return "Error: Missing NOTION_DATABASE_MENDELEY_ID in .env"
+
+    title = title.strip()
+    canonical_doi = doi.lower().replace("https://doi.org/", "").replace("doi:", "").strip()
+    if not title and not canonical_doi:
+        return "Error: Provide a title or DOI to check the Mendeley archive."
+
+    try:
+        headers = notion_headers()
+        schema_response = requests.get(
+            f"https://api.notion.com/v1/databases/{database_id}", headers=headers, timeout=20
+        )
+        schema_response.raise_for_status()
+        schema = schema_response.json().get("properties", {})
+    except (RuntimeError, requests.RequestException) as exc:
+        return f"Error: Could not inspect the Mendeley database: {exc}"
+
+    doi_property = find_schema_property(schema, ("doi",))
+    title_property = find_schema_property(schema, ("title", "paper title", "article title", "name"))
+    if not doi_property and not title_property:
+        return "Error: The Mendeley database has no recognized DOI or title property."
+
+    filters = []
+    if canonical_doi and doi_property:
+        name, definition = doi_property
+        property_type = definition.get("type")
+        if property_type == "rich_text":
+            filters.append({"property": name, "rich_text": {"contains": canonical_doi}})
+        elif property_type == "title":
+            filters.append({"property": name, "title": {"contains": canonical_doi}})
+        elif property_type == "url":
+            filters.append({"property": name, "url": {"equals": canonical_doi}})
+    if title and title_property:
+        name, definition = title_property
+        property_type = definition.get("type")
+        query_title = title[:100]
+        if property_type == "title":
+            filters.append({"property": name, "title": {"contains": query_title}})
+        elif property_type == "rich_text":
+            filters.append({"property": name, "rich_text": {"contains": query_title}})
+
+    matches_by_id: dict[str, dict[str, Any]] = {}
+    for filter_payload in filters:
+        try:
+            response = requests.post(
+                f"https://api.notion.com/v1/databases/{database_id}/query",
+                headers=headers,
+                json={"filter": filter_payload, "page_size": 20},
+                timeout=20,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            return f"Error: Could not query the Mendeley database: {exc}"
+        for page in response.json().get("results", []):
+            properties = page.get("properties", {})
+            matches_by_id[page.get("id", "")] = {
+                "page_id": page.get("id"),
+                "url": page.get("url"),
+                "title": notion_property_text(properties.get(title_property[0], {})) if title_property else "",
+                "doi": notion_property_text(properties.get(doi_property[0], {})) if doi_property else "",
+            }
+
+    return json.dumps(
+        {
+            "query": {"title": title, "doi": canonical_doi},
+            "matches": list(matches_by_id.values()),
+            "is_duplicate": bool(matches_by_id),
+        },
+        ensure_ascii=False,
+    )
+
+
+@function_tool
+def push_search_article(
+    title: str,
+    authors: str = "",
+    year: str = "",
+    venue: str = "",
+    doi: str = "",
+    official_url: str = "",
+    abstract: str = "",
+    source_type: str = "",
+    ticket_id: str = "",
+    relevance_note: str = "",
+) -> str:
+    """Create a selected literature candidate in the Notion search database.
+
+    The database schema is read at runtime. Recognized fields are populated when they
+    exist; unknown custom properties are left untouched. An existing title or DOI is
+    skipped, making retries safe. Use only for selected candidates, not raw results.
+    """
+    title = title.strip()
+    if not title:
+        return "Error: title must not be empty."
+    database_id = os.getenv("NOTION_DATABASE_SEARCH_ID")
+    if not database_id:
+        return "Error: Missing NOTION_DATABASE_SEARCH_ID in .env"
+
+    try:
+        headers = notion_headers()
+        schema_response = requests.get(
+            f"https://api.notion.com/v1/databases/{database_id}", headers=headers, timeout=20
+        )
+        schema_response.raise_for_status()
+        schema = schema_response.json().get("properties", {})
+    except (RuntimeError, requests.RequestException) as exc:
+        return f"Error: Could not inspect the literature-search database: {exc}"
+
+    title_property = find_schema_property(schema, ("title", "paper title", "article title", "name")) or first_title_property(schema)
+    if not title_property:
+        return "Error: The literature-search database has no title property."
+    doi_property = find_schema_property(schema, ("doi",))
+
+    for name, definition, value in (
+        (doi_property[0], doi_property[1], doi) if doi_property and doi else ("", {}, ""),
+        (title_property[0], title_property[1], title),
+    ):
+        filter_payload = source_search_filter(name, definition, value) if name and value else None
+        if not filter_payload:
+            continue
+        try:
+            response = requests.post(
+                f"https://api.notion.com/v1/databases/{database_id}/query",
+                headers=headers,
+                json={"filter": filter_payload, "page_size": 1},
+                timeout=20,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            return f"Error: Could not check for existing search records: {exc}"
+        pages = response.json().get("results", [])
+        if pages:
+            return json.dumps(
+                {"status": "skipped", "title": title, "reason": "An article with this title or DOI already exists.", "page_id": pages[0].get("id")},
+                ensure_ascii=False,
+            )
+
+    values = {
+        "title": title,
+        "authors": authors,
+        "year": year,
+        "venue": venue,
+        "doi": doi,
+        "official_url": official_url,
+        "abstract": abstract,
+        "source_type": source_type,
+        "ticket_id": ticket_id,
+        "relevance_note": relevance_note,
+    }
+    aliases = {
+        "title": ("title", "paper title", "article title", "name"),
+        "authors": ("authors", "author"),
+        "year": ("year", "publication year"),
+        "venue": ("venue", "journal", "publication", "container title"),
+        "doi": ("doi",),
+        "official_url": ("official url", "url", "link", "source url"),
+        "abstract": ("abstract", "summary"),
+        "source_type": ("source type", "type", "publication type"),
+        "ticket_id": ("ticket id", "ticket_id"),
+        "relevance_note": ("relevance note", "relevance", "notes", "note"),
+    }
+    properties: dict[str, Any] = {}
+    for field, value in values.items():
+        match = title_property if field == "title" else find_schema_property(schema, aliases[field])
+        if not match:
+            continue
+        property_value = notion_text_property(match[1].get("type", ""), value)
+        if property_value:
+            properties[match[0]] = property_value
+
+    try:
+        response = requests.post(
+            "https://api.notion.com/v1/pages",
+            headers=headers,
+            json={"parent": {"database_id": database_id}, "properties": properties},
+            timeout=20,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        return f"Error: Could not create literature-search record: {exc}"
+
+    page = response.json()
+    return json.dumps(
+        {"status": "created", "title": title, "page_id": page.get("id"), "url": page.get("url"), "populated_properties": list(properties)},
+        ensure_ascii=False,
+    )
 
 
 @function_tool
@@ -152,9 +408,9 @@ def push_notion_ticket(
     if not ticket_id.strip():
         return "Error: ticket_id must not be empty."
 
-    database_id = os.getenv("NOTION_DATABASE_ID")
+    database_id = os.getenv("NOTION_DATABASE_TICKET_ID")
     if not database_id:
-        return "Error: Missing NOTION_DATABASE_ID in .env"
+        return "Error: Missing NOTION_DATABASE_TICKET_ID in .env"
 
     try:
         headers = notion_headers()
