@@ -1,0 +1,8 @@
+# Non-secret application settings. Keep API keys and tokens in .env.
+
+[model]
+# Supported values: "nvidia", "gemini"
+provider = "nvidia"
+name = "z-ai/glm-5.2"
+
+# Future non-secret configuration decisions belong in dedicated sections here.

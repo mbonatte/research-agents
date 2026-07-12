@@ -3,7 +3,8 @@ import asyncio
 from dotenv import load_dotenv
 from agents import set_tracing_disabled
 
-from app.models import create_nvidia_model
+from app.config import load_model_config
+from app.models import create_configured_model
 from app.chat import interactive_chat
 from app.logging import save_local_run_log
 
@@ -14,7 +15,7 @@ async def main():
     load_dotenv()
     set_tracing_disabled(True)
 
-    model = create_nvidia_model(model_name="z-ai/glm-5.2")
+    model = create_configured_model(load_model_config())
 
     agent_registry = create_agent_registry(model)
     agent = choose_agent(agent_registry)
@@ -28,4 +29,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    

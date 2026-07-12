@@ -3,6 +3,8 @@ import os
 from openai import AsyncOpenAI
 from agents import OpenAIChatCompletionsModel
 
+from app.config import ModelConfig
+
 
 def create_nvidia_model(model_name: str = "z-ai/glm-5.2"):
     nvidia_api_key = os.getenv("NVIDIA_API_KEY")
@@ -35,3 +37,12 @@ def create_gemini_model(model_name: str = "gemini-3.1-flash-lite"):
         model=model_name,
         openai_client=gemini_client,
     )
+
+
+def create_configured_model(config: ModelConfig):
+    """Build the configured model without placing provider choices in application code."""
+    if config.provider == "nvidia":
+        return create_nvidia_model(config.name)
+    if config.provider == "gemini":
+        return create_gemini_model(config.name)
+    raise ValueError(f"Unsupported model provider: {config.provider}")

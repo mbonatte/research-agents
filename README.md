@@ -63,6 +63,11 @@ Fill in the required values in `.env`, then run:
 python main.py
 ```
 
+Choose the model independently of secrets in [`config.toml`](config.toml). Set
+`model.provider` to `nvidia` or `gemini` and provide a compatible `model.name`; the
+matching API key remains in `.env`. Future non-secret application decisions should be
+added as new TOML sections in this file.
+
 The CLI prints the available agents and asks which one to run.
 
 ## Environment Variables
