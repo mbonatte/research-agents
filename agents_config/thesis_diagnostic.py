@@ -2,7 +2,7 @@ from agents import Agent, ModelSettings
 
 from app.skills import load_skill
 
-from tools.notion import pull_notion_ticket
+from tools.notion import pull_notion_ticket, push_notion_ticket
 from tools.github import (
     clone_or_update_thesis_repository,
 )
@@ -28,5 +28,6 @@ def create_thesis_diagnostic_agent(model):
             read_repo_file,
             search_repo_text,
             pull_notion_ticket,
+            push_notion_ticket,
         ],
     )

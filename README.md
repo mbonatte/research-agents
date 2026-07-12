@@ -7,6 +7,7 @@ Local command-line agents for supporting PhD thesis work. The current draft focu
 - Start an interactive terminal chat with a selected thesis agent.
 - Run a thesis diagnostic reviewer against files from a cloned thesis repository.
 - Pull thesis-improvement tickets from a Notion database.
+- Create deduplicated thesis-improvement tickets in Notion after a diagnostic run.
 - Search academic metadata.
 
 The currently registered agents are:
@@ -100,7 +101,9 @@ TODO:
 - Define the expected ticket properties, including `ticket_id`, `severity`, `issue_type`, `confidence`, `location`, `diagnosis`, `evidence`, `why_it_matters`, `suggested_research_directions`, and `expected_improvement`.
 - Create a Notion integration and share the database with it.
 - Set `NOTION_API_KEY_PHD_THESIS` and `NOTION_DATABASE_ID`.
-- Verify that `pull_notion_ticket` can retrieve a known ticket.
+- Verify that `pull_notion_ticket` can retrieve a known ticket and that a diagnostic
+  run can create a new ticket. Ticket creation skips an existing `ticket_id`, making
+  retries safe.
 
 ### AI Provider Token Setup
 

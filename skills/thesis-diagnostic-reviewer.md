@@ -105,7 +105,9 @@ tickets:
 
 ## Notion ticket push workflow
 
-When the user asks to push tickets to Notion, use the thesis Notion integration.
+After producing diagnostic tickets, push every ticket to the thesis Notion integration.
+Do this as part of the diagnostic run; do not wait for a separate push request. If no
+evidence-backed tickets are found, report that no Notion pages were created.
 
 Database schema observed:
 
@@ -122,14 +124,13 @@ Database schema observed:
 
 Push procedure:
 
-1. Inspect/query the database first to verify access and schema.
-2. Query existing rows and deduplicate by `ticket_id`.
-3. Create one Notion page per ticket.
-4. Store list fields as newline bullet text in rich_text fields.
-5. Keep rich_text chunks within Notion limits; truncate or split only if needed.
-6. Include downstream instructions inside `expected_improvement` if no separate property exists.
-7. Verify created ticket IDs after creation.
-8. Report created vs skipped IDs to the user.
+1. Use `push_notion_ticket` for each ticket. The tool queries the database first and
+   skips an existing `ticket_id`, so retries are safe.
+2. Create one Notion page per ticket that was not skipped.
+3. Store list fields as newline bullet text in rich_text fields.
+4. Keep rich_text chunks within Notion limits; truncate or split only if needed.
+5. Include downstream instructions inside `expected_improvement` if no separate property exists.
+6. Report created vs skipped IDs to the user from the tool results.
 
 ## Repository Map
 
