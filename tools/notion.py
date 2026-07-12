@@ -109,9 +109,10 @@ def notion_property_text(value: dict[str, Any]) -> str:
 
 def find_schema_property(schema: dict[str, Any], names: tuple[str, ...]) -> tuple[str, dict[str, Any]] | None:
     """Find a Notion property by a case-insensitive canonical field name."""
-    normalized_names = {name.lower().replace("_", "").replace("-", " ") for name in names}
+    normalize = lambda value: " ".join(value.lower().replace("_", " ").replace("-", " ").split())
+    normalized_names = {normalize(name) for name in names}
     for name, definition in schema.items():
-        normalized = name.lower().replace("_", "").replace("-", " ")
+        normalized = normalize(name)
         if normalized in normalized_names:
             return name, definition
     return None
@@ -150,6 +151,140 @@ def source_search_filter(name: str, definition: dict[str, Any], value: str) -> d
     if property_type == "url":
         return {"property": name, "url": {"equals": value}}
     return None
+
+
+def update_mendeley_article(
+    *,
+    title: str,
+    mendeley_id: str = "",
+    doi: str = "",
+    authors: str = "",
+    year: str = "",
+    venue: str = "",
+    abstract: str = "",
+    official_url: str = "",
+    source_type: str = "",
+    page_id: str = "",
+) -> dict[str, Any]:
+    """Create or update one Notion/Mendeley archive record.
+
+    This is an application helper, intentionally not an ``@function_tool``. If no
+    ``page_id`` is supplied, it finds an existing record using Mendeley ID, DOI, then
+    title. Multiple matches raise an error rather than risking the wrong update.
+    Only properties that exist in the current Notion schema are populated.
+    """
+    title = title.strip()
+    if not title:
+        raise ValueError("title must not be empty")
+
+    database_id = os.getenv("NOTION_DATABASE_MENDELEY_ID")
+    if not database_id:
+        raise RuntimeError("Missing NOTION_DATABASE_MENDELEY_ID in .env")
+    headers = notion_headers()
+
+    try:
+        schema_response = requests.get(
+            f"https://api.notion.com/v1/databases/{database_id}", headers=headers, timeout=20
+        )
+        schema_response.raise_for_status()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Could not inspect the Mendeley database: {exc}") from exc
+    schema = schema_response.json().get("properties", {})
+    title_property = find_schema_property(schema, ("title", "paper title", "article title", "name")) or first_title_property(schema)
+    if not title_property:
+        raise RuntimeError("The Mendeley database has no title property")
+
+    aliases = {
+        "mendeley_id": ("mendeley id", "mendeley_id", "document id", "document_id"),
+        "doi": ("doi",),
+        "authors": ("authors", "author"),
+        "year": ("year", "publication year"),
+        "venue": ("venue", "journal", "publication", "container title"),
+        "abstract": ("abstract", "summary"),
+        "official_url": ("official url", "url", "link", "source url"),
+        "source_type": ("source type", "type", "publication type"),
+    }
+    matched_page_id = page_id.strip()
+    if not matched_page_id:
+        candidates = [
+            (aliases["mendeley_id"], mendeley_id),
+            (aliases["doi"], doi),
+            (("title", "paper title", "article title", "name"), title),
+        ]
+        for property_names, value in candidates:
+            if not value:
+                continue
+            match = find_schema_property(schema, property_names)
+            if not match:
+                continue
+            filter_payload = source_search_filter(match[0], match[1], value)
+            if not filter_payload:
+                continue
+            try:
+                response = requests.post(
+                    f"https://api.notion.com/v1/databases/{database_id}/query",
+                    headers=headers,
+                    json={"filter": filter_payload, "page_size": 2},
+                    timeout=20,
+                )
+                response.raise_for_status()
+            except requests.RequestException as exc:
+                raise RuntimeError(f"Could not query the Mendeley database: {exc}") from exc
+            pages = response.json().get("results", [])
+            if len(pages) > 1:
+                raise RuntimeError("Multiple Mendeley records match; pass page_id to update safely")
+            if pages:
+                matched_page_id = pages[0].get("id", "")
+                break
+
+    values = {
+        "title": title,
+        "mendeley_id": mendeley_id,
+        "doi": doi,
+        "authors": authors,
+        "year": year,
+        "venue": venue,
+        "abstract": abstract,
+        "official_url": official_url,
+        "source_type": source_type,
+    }
+    properties: dict[str, Any] = {}
+    for field, value in values.items():
+        match = title_property if field == "title" else find_schema_property(schema, aliases[field])
+        if not match:
+            continue
+        property_value = notion_text_property(match[1].get("type", ""), value)
+        if property_value:
+            properties[match[0]] = property_value
+
+    try:
+        if matched_page_id:
+            response = requests.patch(
+                f"https://api.notion.com/v1/pages/{matched_page_id}",
+                headers=headers,
+                json={"properties": properties},
+                timeout=20,
+            )
+            status = "updated"
+        else:
+            response = requests.post(
+                "https://api.notion.com/v1/pages",
+                headers=headers,
+                json={"parent": {"database_id": database_id}, "properties": properties},
+                timeout=20,
+            )
+            status = "created"
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Could not {status} the Mendeley record: {exc}") from exc
+
+    page = response.json()
+    return {
+        "status": status,
+        "page_id": page.get("id"),
+        "url": page.get("url"),
+        "populated_properties": list(properties),
+    }
 
 
 @function_tool

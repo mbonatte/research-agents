@@ -82,6 +82,10 @@ Optional or tool-specific:
 - `GITHUB_PHD_THESIS_KEY_PRIVATE`: base64-encoded SSH private key used by the GitHub tool.
 - `GITHUB_ACCESS_TOKEN`: currently reserved for GitHub access-token workflows.
 
+The non-agent helper `tools.notion.update_mendeley_article` creates or updates a
+Mendeley archive record by page ID, Mendeley ID, DOI, or title. It maps only properties
+available in the configured Notion schema.
+
 ## Planned Setup Documentation
 
 These sections are intentionally left as the next documentation milestones before the workflow is treated as reproducible.
