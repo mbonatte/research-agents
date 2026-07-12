@@ -550,6 +550,7 @@ def check_mendeley_archive(title: str, doi: str = "") -> str:
 
     doi_property = find_schema_property(schema, ("doi",))
     title_property = find_schema_property(schema, ("title", "paper title", "article title", "name"))
+    file_id_property = find_schema_property(schema, ("file id", "file_id", "mendeley file id"))
     if not doi_property and not title_property:
         return "Error: The Mendeley database has no recognized DOI or title property."
 
@@ -591,6 +592,7 @@ def check_mendeley_archive(title: str, doi: str = "") -> str:
                 "url": page.get("url"),
                 "title": notion_property_text(properties.get(title_property[0], {})) if title_property else "",
                 "doi": notion_property_text(properties.get(doi_property[0], {})) if doi_property else "",
+                "file_id": notion_property_text(properties.get(file_id_property[0], {})) if file_id_property else "",
             }
 
     return json.dumps(
@@ -601,6 +603,36 @@ def check_mendeley_archive(title: str, doi: str = "") -> str:
         },
         ensure_ascii=False,
     )
+
+
+@function_tool
+def mark_search_article_already_in_bib(page_id: str) -> str:
+    """Set the Search database `Already in Bib` checkbox for a verified archive match.
+
+    Use only after `check_mendeley_archive` found a matching record with a non-empty
+    file_id. The tool never creates the property or changes unrelated fields.
+    """
+    database_id = os.getenv("NOTION_DATABASE_SEARCH_ID")
+    if not database_id:
+        return "Error: Missing NOTION_DATABASE_SEARCH_ID in .env"
+    try:
+        headers = notion_headers()
+        schema = database_schema(database_id, headers)
+        property_match = find_schema_property(schema, ("already in bib", "already_in_bib"))
+        if not property_match:
+            return "Error: Search database is missing the `Already in Bib` property."
+        if property_match[1].get("type") != "checkbox":
+            return "Error: Search database `Already in Bib` must be a checkbox property."
+        response = requests.patch(
+            f"https://api.notion.com/v1/pages/{page_id}",
+            headers=headers,
+            json={"properties": {property_match[0]: {"checkbox": True}}},
+            timeout=20,
+        )
+        response.raise_for_status()
+    except (RuntimeError, requests.RequestException) as exc:
+        return f"Error: Could not mark Search record as already in bibliography: {exc}"
+    return json.dumps({"status": "updated", "page_id": page_id, "already_in_bib": True})
 
 
 @function_tool

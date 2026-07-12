@@ -138,6 +138,12 @@ bibliography_status:
 
 If already in bibliography, recommend using the existing entry instead of creating duplicates.
 
+For every Search-database candidate, also call `check_mendeley_archive` with the
+verified title and DOI. If a Mendeley match has a non-empty `file_id`, call
+`mark_search_article_already_in_bib` with the Search record page ID. This checks the
+Search database's `Already in Bib` checkbox; do not set it when no archive match or
+file ID is present. Report these updates in the fit-review output.
+
 ### 9. Conflict/tension detection
 
 Flag sources that challenge assumptions, show limitations, recommend different methods, or risk expanding chapter scope. Conflicts may be useful for limitations sections and do not automatically mean rejection.
