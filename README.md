@@ -88,6 +88,22 @@ The non-agent helper `tools.notion.update_mendeley_article` creates or updates a
 Mendeley archive record by page ID, Mendeley ID, DOI, or title. It maps only properties
 available in the configured Notion schema.
 
+### Mendeley Archive Setup
+
+1. Create a Mendeley developer application and register `http://127.0.0.1:8000/callback`
+   as its redirect URI.
+2. Copy its client ID and secret into `.env` using the corresponding entries in
+   `env.example`. Never commit `.env` or the generated token file.
+3. Run `python -m tools.mendeley_sync authorize`. The browser opens; sign in to
+   Mendeley and approve access. The local callback confirms success and stores a
+   refreshable token at `.secrets/mendeley_tokens.json`.
+4. Run `python -m tools.mendeley_sync sync` to create or update the Notion/Mendeley
+   archive. It preserves Mendeley document IDs, preferred PDF file IDs, citation keys,
+   identifiers, tags, keywords, abstracts, and timestamps.
+
+The authorization command is needed only initially (or after revocation). `sync`
+refreshes expired access tokens automatically.
+
 ## Planned Setup Documentation
 
 These sections are intentionally left as the next documentation milestones before the workflow is treated as reproducible.
