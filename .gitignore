@@ -1,6 +1,7 @@
 .secrets/
 repositories/
 .runs/
+.pytest_cache/
 
 # Environments
 .env

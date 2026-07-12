@@ -3,3 +3,4 @@ httpx
 openai
 openai-agents
 requests
+pytest
