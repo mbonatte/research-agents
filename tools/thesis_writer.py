@@ -2,14 +2,19 @@
 
 import re
 import subprocess
+import os
+from urllib.parse import urlparse
+
+import requests
 
 from agents import function_tool
 
 from tools.latex import get_repo_root, safe_repo_path
+from tools.github import get_git_env
 
 
 def git(command: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *command], cwd=get_repo_root(), capture_output=True, text=True, timeout=120)
+    return subprocess.run(["git", *command], cwd=get_repo_root(), env=get_git_env(), capture_output=True, text=True, timeout=120)
 
 
 def current_branch() -> str:
@@ -102,3 +107,48 @@ def commit_writer_changes(message: str) -> str:
         return committed.stdout.strip()
     except Exception as exc:
         return f"Error committing writer changes: {exc}"
+
+
+@function_tool
+def push_writer_branch() -> str:
+    """Push the current non-protected writer branch to origin."""
+    try:
+        ensure_safe_branch()
+        branch = current_branch()
+        result = git(["push", "-u", "origin", branch])
+        if result.returncode:
+            return f"Error pushing branch: {result.stderr.strip()}"
+        return f"Pushed {branch} to origin."
+    except Exception as exc:
+        return f"Error pushing writer branch: {exc}"
+
+
+@function_tool
+def create_writer_pull_request(title: str, body: str, base_branch: str = "main") -> str:
+    """Create a GitHub pull request from the current writer branch. Never merges it."""
+    try:
+        ensure_safe_branch()
+        token = os.getenv("GITHUB_ACCESS_TOKEN")
+        if not token:
+            return "Error: Missing GITHUB_ACCESS_TOKEN."
+        remote = git(["remote", "get-url", "origin"])
+        if remote.returncode:
+            return f"Error reading origin remote: {remote.stderr.strip()}"
+        value = remote.stdout.strip()
+        repo = re.sub(r"^git@github\.com:", "", value)
+        repo = re.sub(r"^https?://github\.com/", "", repo).removesuffix(".git")
+        if not re.fullmatch(r"[^/]+/[^/]+", repo):
+            return "Error: origin is not a GitHub owner/repository remote."
+        response = requests.post(
+            f"https://api.github.com/repos/{repo}/pulls",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            json={"title": title, "head": current_branch(), "base": base_branch, "body": body},
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return f"Created pull request #{data.get('number')}: {data.get('html_url')}"
+    except requests.RequestException as exc:
+        return f"Error creating pull request: {exc}"
+    except Exception as exc:
+        return f"Error creating pull request: {exc}"

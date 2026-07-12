@@ -14,6 +14,8 @@ from tools.thesis_writer import (
     create_writer_branch,
     replace_thesis_text,
     validate_writer_changes,
+    push_writer_branch,
+    create_writer_pull_request,
 )
 
 
@@ -34,5 +36,7 @@ def create_latex_pr_writer_agent(model):
             replace_thesis_text,
             validate_writer_changes,
             commit_writer_changes,
+            push_writer_branch,
+            create_writer_pull_request,
         ],
     )
