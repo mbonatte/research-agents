@@ -153,6 +153,50 @@ def source_search_filter(name: str, definition: dict[str, Any], value: str) -> d
     return None
 
 
+def sync_search_record_mendeley(page_id: str, title: str, doi: str) -> dict[str, str]:
+    """Best-effort automatic Mendeley relation sync for a new Search record."""
+    try:
+        headers = notion_headers()
+        mendeley_db = os.getenv("NOTION_DATABASE_MENDELEY_ID")
+        search_db = os.getenv("NOTION_DATABASE_SEARCH_ID")
+        if not mendeley_db or not search_db:
+            return {"status": "skipped", "reason": "Mendeley or Search database is not configured."}
+        m_schema = database_schema(mendeley_db, headers)
+        s_schema = database_schema(search_db, headers)
+        relation = find_schema_property(s_schema, ("mendeley",))
+        file_id = find_schema_property(m_schema, ("file id", "file_id", "mendeley file id"))
+        title_prop = find_schema_property(m_schema, ("title", "paper title", "article title", "name")) or first_title_property(m_schema)
+        doi_prop = find_schema_property(m_schema, ("doi",))
+        if not relation or relation[1].get("type") != "relation" or not file_id:
+            return {"status": "skipped", "reason": "Required Mendeley relation or file ID property is unavailable."}
+        match = None
+        for prop, value in ((doi_prop, doi), (title_prop, title)):
+            if not prop or not value:
+                continue
+            filter_payload = source_search_filter(prop[0], prop[1], value)
+            if not filter_payload:
+                continue
+            response = requests.post(f"https://api.notion.com/v1/databases/{mendeley_db}/query", headers=headers, json={"filter": filter_payload, "page_size": 1}, timeout=20)
+            response.raise_for_status()
+            pages = response.json().get("results", [])
+            if pages:
+                match = pages[0]; break
+        if not match:
+            return {"status": "not_found"}
+        if not notion_property_text(match.get("properties", {}).get(file_id[0], {})):
+            return {"status": "no_file"}
+        page = requests.get(f"https://api.notion.com/v1/pages/{page_id}", headers=headers, timeout=20); page.raise_for_status()
+        links = [item.get("id") for item in page.json().get("properties", {}).get(relation[0], {}).get("relation", []) if item.get("id")]
+        if match["id"] in links:
+            return {"status": "already_linked", "mendeley_page_id": match["id"]}
+        links.append(match["id"])
+        response = requests.patch(f"https://api.notion.com/v1/pages/{page_id}", headers=headers, json={"properties": {relation[0]: {"relation": [{"id": item} for item in links]}}}, timeout=20)
+        response.raise_for_status()
+        return {"status": "linked", "mendeley_page_id": match["id"]}
+    except (RuntimeError, requests.RequestException) as exc:
+        return {"status": "skipped", "reason": str(exc)}
+
+
 def database_schema(database_id: str, headers: dict[str, str]) -> dict[str, Any]:
     response = requests.get(
         f"https://api.notion.com/v1/databases/{database_id}", headers=headers, timeout=20
@@ -704,8 +748,9 @@ def push_search_article(
             return f"Error: Could not check for existing search records: {exc}"
         pages = response.json().get("results", [])
         if pages:
+            mendeley_sync = sync_search_record_mendeley(pages[0].get("id", ""), title, doi)
             return json.dumps(
-                {"status": "skipped", "title": title, "reason": "An article with this title or DOI already exists.", "page_id": pages[0].get("id")},
+                {"status": "skipped", "title": title, "reason": "An article with this title or DOI already exists.", "page_id": pages[0].get("id"), "mendeley_sync": mendeley_sync},
                 ensure_ascii=False,
             )
 
@@ -754,8 +799,9 @@ def push_search_article(
         return f"Error: Could not create literature-search record: {exc}"
 
     page = response.json()
+    mendeley_sync = sync_search_record_mendeley(page.get("id", ""), title, doi)
     return json.dumps(
-        {"status": "created", "title": title, "page_id": page.get("id"), "url": page.get("url"), "populated_properties": list(properties)},
+        {"status": "created", "title": title, "page_id": page.get("id"), "url": page.get("url"), "populated_properties": list(properties), "mendeley_sync": mendeley_sync},
         ensure_ascii=False,
     )
 

@@ -128,11 +128,9 @@ OpenAlex record through `get_openalex_work`. Use `fetch_website_text` only to in
 an official publisher, institutional, standards, or repository page; never treat a
 search snippet as evidence. Use `get_bibtex_from_doi` only after metadata is verified.
 
-For every candidate that would otherwise be retained, call `check_mendeley_archive`
-with its verified title and DOI. The Mendeley archive is the sole duplicate check: do
-not inspect the thesis repository or a local `.bib` file. Mark a returned match as
-`already_in_mendeley: true`, include its page ID/URL in `mendeley_matches`, and do not
-push that source to the Search database again.
+Do not perform Mendeley relation updates yourself. `push_search_article` automatically
+checks the Mendeley archive and links the new or existing Search record when it finds a
+matching record with a file ID.
 
 For each search cluster, collect candidate sources with:
 

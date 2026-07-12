@@ -9,9 +9,7 @@ from tools.latex import (
     search_repo_text,
 )
 from tools.notion import (
-    check_mendeley_archive,
     list_search_articles,
-    link_search_article_to_mendeley,
     pull_notion_ticket,
     write_literature_fit_review,
     write_ticket_literature_fit_summary,
@@ -31,8 +29,6 @@ def create_literature_reviewer_agent(model):
             search_repo_text,
             pull_notion_ticket,
             list_search_articles,
-            check_mendeley_archive,
-            link_search_article_to_mendeley,
             write_literature_fit_review,
             write_ticket_literature_fit_summary,
         ],

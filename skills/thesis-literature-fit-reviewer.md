@@ -138,12 +138,9 @@ bibliography_status:
 
 If already in bibliography, recommend using the existing entry instead of creating duplicates.
 
-For every Search-database candidate, also call `check_mendeley_archive` with the
-verified title and DOI. If a Mendeley match has a non-empty `file_id`, call
-`link_search_article_to_mendeley` with the Search record page ID and the matching
-Mendeley page ID. This creates the Search database's `Mendeley` relation; do not link
-it when no archive match or file ID is present. Report these updates in the fit-review
-output.
+Mendeley matching and Search-to-Mendeley relation updates occur automatically when the
+searcher pushes a source. Use the resulting relation as evidence during review; do not
+perform a second manual synchronization.
 
 ### 9. Conflict/tension detection
 
