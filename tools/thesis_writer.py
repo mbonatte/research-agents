@@ -86,17 +86,22 @@ def validate_writer_changes() -> str:
 
 @function_tool
 def commit_writer_changes(message: str) -> str:
-    """Commit intended `.tex` and `.bib` changes on a non-protected local branch."""
+    """Commit intended `.tex`/`.bib` changes and staged PDF-derived figure assets on a safe branch."""
     try:
         ensure_safe_branch()
-        changed = git(["diff", "--name-only"])
-        files = [line for line in changed.stdout.splitlines() if line]
+        unstaged = git(["diff", "--name-only"])
+        staged = git(["diff", "--cached", "--name-only"])
+        if unstaged.returncode or staged.returncode:
+            return f"Error listing changes: {(unstaged.stderr or staged.stderr).strip()}"
+        files = sorted({line for result in (unstaged, staged) for line in result.stdout.splitlines() if line})
         if not files:
             return "Error: No changes to commit."
-        if any(not file.lower().endswith((".tex", ".bib")) for file in files):
-            return "Error: Refusing to commit changes outside .tex/.bib files."
+        allowed_suffixes = (".tex", ".bib", ".png", ".jpg", ".jpeg", ".webp")
+        if any(not file.lower().endswith(allowed_suffixes) for file in files):
+            return "Error: Refusing to commit changes outside .tex/.bib or approved raster figure files."
         check = git(["diff", "--check"])
-        if check.returncode:
+        cached_check = git(["diff", "--cached", "--check"])
+        if check.returncode or cached_check.returncode:
             return f"Error: diff validation failed:\n{check.stdout}\n{check.stderr}"
         staged = git(["add", "--", *files])
         if staged.returncode:

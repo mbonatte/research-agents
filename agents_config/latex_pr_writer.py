@@ -10,6 +10,15 @@ from tools.latex import (
 from tools.github import clone_or_update_thesis_repository
 from tools.notion import list_search_articles, pull_notion_ticket
 from tools.mendeley_download import download_mendeley_pdf
+from tools.pdf_tools import (
+    copy_pdf_asset_to_thesis,
+    extract_pdf_images,
+    extract_pdf_tables,
+    extract_pdf_text,
+    inspect_pdf,
+    render_pdf_pages,
+    search_pdf_text,
+)
 from tools.thesis_writer import (
     commit_writer_changes,
     create_writer_branch,
@@ -36,6 +45,13 @@ def create_latex_pr_writer_agent(model):
             pull_notion_ticket,
             list_search_articles,
             download_mendeley_pdf,
+            inspect_pdf,
+            extract_pdf_text,
+            search_pdf_text,
+            extract_pdf_tables,
+            extract_pdf_images,
+            render_pdf_pages,
+            copy_pdf_asset_to_thesis,
 
             replace_thesis_text,
 

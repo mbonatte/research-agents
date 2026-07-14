@@ -3,9 +3,11 @@ import json
 from pathlib import Path
 
 import pytest
+import fitz
 
 from tools import notion
 from tools import mendeley_download
+from tools import pdf_tools
 from tools.mendeley import mendeley_document_to_archive_record
 
 
@@ -173,3 +175,24 @@ def test_download_mendeley_pdf_removes_non_pdf_response(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="not a PDF"):
         mendeley_download.fetch_mendeley_pdf("file-1", tmp_path)
     assert not list(tmp_path.iterdir())
+
+
+def test_pdf_tools_extract_text_and_render_downloaded_pdf(monkeypatch, tmp_path):
+    downloads = tmp_path / "mendeley-pdfs"
+    artifacts = tmp_path / "pdf-artifacts"
+    downloads.mkdir()
+    pdf_path = downloads / "paper.pdf"
+    document = fitz.open()
+    page = document.new_page()
+    page.insert_text((72, 72), "Flood hazard evidence")
+    document.save(pdf_path)
+    document.close()
+    monkeypatch.setattr(pdf_tools, "PDF_DOWNLOAD_DIRECTORY", downloads.resolve())
+    monkeypatch.setattr(pdf_tools, "PDF_ARTIFACT_DIRECTORY", artifacts.resolve())
+
+    inspection = json.loads(invoke(pdf_tools.inspect_pdf, pdf_path=str(pdf_path)))
+    assert inspection["page_count"] == 1
+    text = invoke(pdf_tools.extract_pdf_text, pdf_path=str(pdf_path))
+    assert "Flood hazard evidence" in text
+    rendered = json.loads(invoke(pdf_tools.render_pdf_pages, pdf_path=str(pdf_path), dpi=72))
+    assert Path(rendered["pages"][0]["path"]).is_file()

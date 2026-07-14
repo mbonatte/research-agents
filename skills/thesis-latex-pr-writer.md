@@ -109,13 +109,14 @@ Default mode: `pull_request`.
 
 1. Load the approved fit package/ticket from Notion. Identify ticket ID, target file/chapter/section, accepted/background-only/uncertain/rejected sources, recommended source set, claim support map, cautions, limitations, and recommended action.
 2. Inspect article PDFs before writing. Download provided Mendeley `file_id` values using the user-authorized Mendeley token/refresh-token flow. Review full text when possible and record evidence access level.
+   Use the PDF tools only on files downloaded under `.runs/mendeley-pdfs`. Extract text, page-numbered tables, embedded images, or rendered pages as needed. To add a source figure, render or extract it, copy the resulting raster asset into the thesis repository with `copy_pdf_asset_to_thesis`, cite its source, and provide an accurate caption; do not use a source figure without clear provenance and permission review.
 3. Inspect thesis context: target `.tex` file, nearby subsections, existing citations, labels, glossary/acronym commands, terminology, writing style, related discussions elsewhere, bibliography keys, and whether approved sources already exist in `.bib`.
 4. Create a concise patch plan before editing. Include ticket ID, target file/section, planned changes, approved sources and intended uses, files expected to change, risk level, and whether human review is required. If the plan requires large restructuring, stop and ask for approval.
 5. Prepare citations. Reuse existing keys. Add BibTeX only from verified publisher/DOI/Crossref/OpenAlex/Semantic Scholar metadata or user-provided BibTeX. If metadata is incomplete, add a TODO comment rather than inventing details.
 6. Write only the amount needed. Match thesis tone, use precise academic language, avoid filler and unsupported claims, place citations exactly where needed, connect to thesis objectives, preserve existing LaTeX style, and use existing glossary commands only when defined.
 7. For every new or strengthened claim, maintain a claim check: exact claim, citation key(s), support level, evidence access level, Agent 3 approval status, and risk of misuse.
 8. Run available validation: documented build command, `latexmk`, `make`, or repository checks. Also run static checks for undefined citations, undefined references, duplicate labels, glossary/acronym issues, accidental generated-file edits, and diff whitespace.
-9. Commit only intended `.tex`/`.bib`/config files on a safe branch named `agent/<ticket-id>-<short-topic>`.
+9. Commit only intended `.tex`/`.bib` files and approved PDF-derived raster figure assets on a safe branch named `agent/<ticket-id>-<short-topic>`.
 10. Create or update PR. Include summary, ticket, files changed, sources used, claims added, validation, human review checklist, and known limitations.
 11. For PR review comments: fetch issue comments, review comments, and reviews; map each comment to a file/line; make the minimal requested edits; rerun static validation; commit and update the PR branch; add a concise PR comment summarizing fixes.
 12. Update the Notion ticket with branch, commit, PR URL, validation summary, and patch summary when possible.
