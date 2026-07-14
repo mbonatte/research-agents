@@ -1,9 +1,11 @@
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 
 from tools import notion
+from tools import mendeley_download
 from tools.mendeley import mendeley_document_to_archive_record
 
 
@@ -137,3 +139,37 @@ def test_link_search_article_to_mendeley_preserves_existing_relations(monkeypatc
     result = json.loads(invoke(notion.link_search_article_to_mendeley, page_id="candidate-1", mendeley_page_id="archive-1"))
     assert result["status"] == "linked"
     assert calls[0]["properties"]["Mendeley"] == {"relation": [{"id": "old-link"}, {"id": "archive-1"}]}
+
+
+def test_download_mendeley_pdf_follows_redirect_and_verifies_pdf(monkeypatch, tmp_path):
+    monkeypatch.setattr(mendeley_download, "valid_access_token", lambda: "user-token")
+
+    def run(command, **kwargs):
+        if "--dump-header" in command:
+            Path(command[command.index("--dump-header") + 1]).write_text("HTTP/1.1 303 See Other\nLocation: https://signed.example/file\n")
+        else:
+            Path(command[command.index("--output") + 1]).write_bytes(b"%PDF-1.7 test")
+        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(mendeley_download.subprocess, "run", run)
+    result = mendeley_download.fetch_mendeley_pdf("file-1", tmp_path)
+    pdf = tmp_path / "file-1.pdf"
+    assert result["path"] == str(pdf.resolve())
+    assert result["bytes"] == len(b"%PDF-1.7 test")
+    assert len(result["sha256"]) == 64
+
+
+def test_download_mendeley_pdf_removes_non_pdf_response(monkeypatch, tmp_path):
+    monkeypatch.setattr(mendeley_download, "valid_access_token", lambda: "user-token")
+
+    def run(command, **kwargs):
+        if "--dump-header" in command:
+            Path(command[command.index("--dump-header") + 1]).write_text("HTTP/1.1 303 See Other\nLocation: https://signed.example/file\n")
+        else:
+            Path(command[command.index("--output") + 1]).write_bytes(b"not a pdf")
+        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(mendeley_download.subprocess, "run", run)
+    with pytest.raises(RuntimeError, match="not a PDF"):
+        mendeley_download.fetch_mendeley_pdf("file-1", tmp_path)
+    assert not list(tmp_path.iterdir())

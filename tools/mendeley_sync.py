@@ -6,6 +6,8 @@ Run `python -m tools.mendeley_sync authorize` once, then
 import argparse
 import json
 import os
+import secrets
+import subprocess
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -21,6 +23,7 @@ from tools.notion import update_mendeley_article
 TOKEN_URL = "https://api.mendeley.com/oauth/token"
 DOCUMENTS_URL = "https://api.mendeley.com/documents"
 FILES_URL = "https://api.mendeley.com/files"
+MENDELEY_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36"
 
 
 def token_file() -> Path:
@@ -32,6 +35,30 @@ def require(name: str) -> str:
     if not value:
         raise RuntimeError(f"Missing {name}. Follow the Mendeley setup section in README.md.")
     return value
+
+
+def request_token(data: dict[str, str]) -> dict:
+    """Request an OAuth token through curl, which Mendeley's Cloudflare accepts."""
+    command = [
+        "curl.exe", "--silent", "--show-error", "--fail-with-body",
+        "--request", "POST", TOKEN_URL,
+        "--header", "Content-Type: application/x-www-form-urlencoded",
+        "--header", "Accept: application/json",
+        "--user-agent", MENDELEY_USER_AGENT,
+    ]
+    for key, value in data.items():
+        command.extend(["--data-urlencode", f"{key}={value}"])
+    result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if result.returncode:
+        detail = (result.stdout or result.stderr).strip().replace("\n", " ")[:500]
+        raise RuntimeError(f"Mendeley token request failed: {detail or 'curl returned no detail'}")
+    try:
+        token_data = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Mendeley token endpoint did not return JSON.") from exc
+    if not token_data.get("access_token"):
+        raise RuntimeError("Mendeley token response did not include an access token.")
+    return token_data
 
 
 def save_tokens(tokens: dict) -> None:
@@ -48,8 +75,14 @@ def valid_access_token() -> str:
     refresh = tokens.get("refresh_token")
     if not refresh:
         raise RuntimeError("No Mendeley token found. Run: python -m tools.mendeley_sync authorize")
-    response = requests.post(TOKEN_URL, data={"grant_type": "refresh_token", "refresh_token": refresh, "client_id": require("MENDELEY_CLIENT_ID"), "client_secret": require("MENDELEY_CLIENT_SECRET")}, timeout=30)
-    response.raise_for_status(); refreshed = response.json(); refreshed.setdefault("refresh_token", refresh); save_tokens(refreshed)
+    refreshed = request_token({
+        "grant_type": "refresh_token",
+        "refresh_token": refresh,
+        "redirect_uri": os.getenv("MENDELEY_REDIRECT_URI", "http://127.0.0.1:8000/callback"),
+        "client_id": require("MENDELEY_CLIENT_ID"),
+        "client_secret": require("MENDELEY_CLIENT_SECRET"),
+    })
+    refreshed.setdefault("refresh_token", refresh); save_tokens(refreshed)
     return refreshed["access_token"]
 
 
@@ -57,18 +90,33 @@ def authorize() -> None:
     redirect = os.getenv("MENDELEY_REDIRECT_URI", "http://127.0.0.1:8000/callback")
     client_id = require("MENDELEY_CLIENT_ID")
     code: dict[str, str] = {}
+    state = secrets.token_urlsafe(32)
     class Callback(BaseHTTPRequestHandler):
         def do_GET(self):
             code.update({key: values[0] for key, values in parse_qs(urlparse(self.path).query).items()})
             self.send_response(200); self.end_headers(); self.wfile.write(b"Authorization received. You can close this tab.")
         def log_message(self, format, *args): pass
-    url = "https://api.mendeley.com/oauth/authorize?" + urlencode({"client_id": client_id, "redirect_uri": redirect, "response_type": "code"})
+    url = "https://api.mendeley.com/oauth/authorize?" + urlencode({
+        "client_id": client_id,
+        "redirect_uri": redirect,
+        "response_type": "code",
+        "scope": "all",
+        "state": state,
+    })
     print("Opening Mendeley authorization in your browser..."); webbrowser.open(url)
     server = HTTPServer(("127.0.0.1", urlparse(redirect).port or 8000), Callback)
     while "code" not in code and "error" not in code: server.handle_request()
     if "error" in code: raise RuntimeError(f"Mendeley authorization failed: {code['error']}")
-    response = requests.post(TOKEN_URL, data={"grant_type": "authorization_code", "code": code["code"], "redirect_uri": redirect, "client_id": client_id, "client_secret": require("MENDELEY_CLIENT_SECRET")}, timeout=30)
-    response.raise_for_status(); save_tokens(response.json()); print(f"Authorized. Tokens saved to {token_file()}.")
+    if not secrets.compare_digest(code.get("state", ""), state):
+        raise RuntimeError("Mendeley authorization failed: callback state did not match the authorization request.")
+    token_data = request_token({
+        "grant_type": "authorization_code",
+        "code": code["code"],
+        "redirect_uri": redirect,
+        "client_id": client_id,
+        "client_secret": require("MENDELEY_CLIENT_SECRET"),
+    })
+    save_tokens(token_data); print(f"Authorized. Tokens saved to {token_file()}.")
 
 
 def fetch_all(url: str, token: str, accept: str) -> list[dict]:
